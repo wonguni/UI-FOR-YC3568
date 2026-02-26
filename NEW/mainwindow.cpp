@@ -44,53 +44,102 @@ MainWindow::MainWindow(QWidget *parent)
 
     // 2) 串口服务（先用模拟）
     m_serial = new SerialService(this);
-//    m_waveTimer = new QTimer(this);
-//    m_waveTimer->setInterval(30);
-//    connect(m_waveTimer, &QTimer::timeout, this, [=]{
-//        if (!m_waveDirty) return;
-//        m_waveDirty = false;
-//        m_wave->setWaveData(m_wavePts);
-//    });
-//    m_waveTimer->start();
-
-
-//    connect(m_serial, &SerialService::eventParsed, this,
-//            [=](const QString& faultType, const QString& occur,
-//                const QString& location, double duration){
-//        ui->labelFaultTypeV->setText(faultType);
-//        ui->labelOccurTimeV->setText(occur);
-//        ui->labelLocationV->setText(location);
-//        ui->labelDurationV->setText(QString::number(duration, 'f', 3) + "s");
-//    });
-
-//    connect(m_serial, &SerialService::wavePointParsed, this, [=](double y){
-//        m_wavePts.push_back(QPointF(m_waveIndex++, y));
-
-//        const int MAX_PTS = 800;
-//        if (m_wavePts.size() > MAX_PTS) {
-//            m_wavePts.remove(0, m_wavePts.size() - MAX_PTS);
-//            for (int i = 0; i < m_wavePts.size(); ++i)
-//                m_wavePts[i].setX(i);
-//            m_waveIndex = m_wavePts.size();
-//        }
-
-//        m_waveDirty = true; // 交给定时器刷
-//    });
-
 
 //    connect(m_serial, &SerialService::rxText, this, [=](const QString& s){
-//        logLine(ui->editLog, s);
-//    });
-//    connect(m_serial, &SerialService::txText, this, [=](const QString& s){
-//        logLine(ui->editLog, s);
-//    });
-//    connect(m_serial, &SerialService::errorText, this, [=](const QString& s){
-//        logLine(ui->editLog, s);
-//    });
-    // 串口输出 -> 打印到日志窗口
+//            if (ui->editLog) ui->editLog->appendPlainText(s);
+
+//            // 解析格式: "[RX] 2.00,4.00,2.00"
+//            if (s.contains("[RX]")) {
+//                int startIdx = s.indexOf(']') + 1;
+//                QString content = s.mid(startIdx).trimmed();
+//                QStringList parts = content.split(',');
+
+//                // 必须确保解析出 3 个数
+//                if (parts.size() >= 3) {
+//                    double v1 = parts[0].toDouble();
+//                    double v2 = parts[1].toDouble();
+//                    double v3 = parts[2].toDouble();
+
+//                    // 增加 X 轴索引
+//                    m_waveIndex++;
+
+//                    // 限制最大点数 (例如800点，也就是屏幕宽度)
+//                    const int MAX_PTS = 800;
+
+//                    // 辅助 lambda：往 buffer 里加点，并保持长度
+//                    auto addPoint = [&](QVector<QPointF>& buf, double val) {
+//                        buf.append(QPointF(m_waveIndex, val));
+//                        if (buf.size() > MAX_PTS) buf.removeFirst();
+//                    };
+
+//                    addPoint(m_waveBuf1, v1);
+//                    addPoint(m_waveBuf2, v2);
+//                    addPoint(m_waveBuf3, v3);
+
+//                    // [关键] 打包这三条线，传给控件
+//                    QVector<QVector<QPointF>> allLines;
+//                    allLines << m_waveBuf1 << m_waveBuf2 << m_waveBuf3;
+
+//                    if (m_wave) m_wave->setMultiWaveData(allLines);
+//                }
+//            }
+//        });
+    // ... 你的其他初始化代码 ...
+
+        // 1. 修改数据接收逻辑：允许数据无限增长，或者设置一个很大的上限
     connect(m_serial, &SerialService::rxText, this, [=](const QString& s){
-        if (ui->editLog) ui->editLog->appendPlainText(s);
-    });
+            // 建议注释掉日志打印以提升性能，特别是在数据量大时
+             if (ui->editLog) ui->editLog->appendPlainText(s);
+
+            if (s.contains("[RX]")) {
+                int startIdx = s.indexOf(']') + 1;
+                QString content = s.mid(startIdx).trimmed();
+                QStringList parts = content.split(',');
+
+                // 只有当成功解析出3个数据时，才进入处理
+                if (parts.size() >= 3) {
+                    // 1. 在这里定义 v1, v2, v3
+                    double v1 = parts[0].toDouble();
+                    double v2 = parts[1].toDouble();
+                    double v3 = parts[2].toDouble();
+
+                    m_waveIndex++;
+                    const int MAX_HISTORY = 50000;
+
+                    // 2. 定义 lambda 工具函数
+                    auto addPoint = [&](QVector<QPointF>& buf, double val) {
+                        buf.append(QPointF(m_waveIndex, val));
+                        if (buf.size() > MAX_HISTORY) buf.removeFirst();
+                    };
+
+                    // 3. 【关键】在同一个花括号内调用它
+                    addPoint(m_waveBuf1, v1);
+                    addPoint(m_waveBuf2, v2);
+                    addPoint(m_waveBuf3, v3);
+
+                    // 4. 更新 UI
+                    QVector<QVector<QPointF>> allLines;
+                    allLines << m_waveBuf1 << m_waveBuf2 << m_waveBuf3;
+                    if (m_wave) m_wave->setMultiWaveData(allLines);
+                }
+            }
+        });
+
+        // 2. 连接右侧按钮 (ZoomIn, ZoomOut, Reset)
+        // 假设你在 .ui 文件里的按钮名字分别是 toolZoomIn, toolZoomOut, toolReset
+
+        connect(ui->toolZoomIn, &QToolButton::clicked, this, [=]{
+            if (m_wave) m_wave->zoomIn();
+        });
+
+        connect(ui->toolZoomOut, &QToolButton::clicked, this, [=]{
+            if (m_wave) m_wave->zoomOut();
+        });
+
+        connect(ui->toolReset, &QToolButton::clicked, this, [=]{
+            if (m_wave) m_wave->resetView();
+        });
+
     connect(m_serial, &SerialService::txText, this, [=](const QString& s){
         if (ui->editLog) ui->editLog->appendPlainText(s);
     });
@@ -202,6 +251,7 @@ void MainWindow::applyDarkStyle()
     )");
 }
 
+
 void MainWindow::generateFakeWave()
 {
     if (!m_wave) return;
@@ -209,11 +259,19 @@ void MainWindow::generateFakeWave()
     QVector<QPointF> pts;
     pts.reserve(800);
 
+    // 生成一条正弦波数据
     for (int i = 0; i < 800; ++i) {
         double y = std::sin(i * 0.03) + 0.2 * std::sin(i * 0.2);
         pts.push_back(QPointF(i, y));
     }
-    m_wave->setWaveData(pts);
+
+    // --- 修改开始 ---
+    // 新代码: 构造成多条线的格式 (这里只有一条线)
+    QVector<QVector<QPointF>> allLines;
+    allLines.append(pts);
+
+    m_wave->setMultiWaveData(allLines);
+    // --- 修改结束 ---
 }
 void MainWindow::promptSerialConfigAndConnect()
 {
